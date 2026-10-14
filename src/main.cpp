@@ -1,30 +1,9 @@
-#include "Errors.h"
-#include "font.hpp"
-
-int setup();
-int loop();
-
-void entry() {
-    auto setupResult = setup();
-    if (setupResult != 0) {
-        if (reportError(setupResult)){
-            return;
-        }
-    }
-    while (true) {
-        auto loopResult = loop();
-        if (reportError(loopResult)){
-            return;
-        }
-    }
-}
+#include "Hal.hpp"
 
 int main() {
-    entry();
-    // on AVR main should never terminate!
-    while (true) {
-    }
+    Hal::initialize();
+    // C runtime initialization establishes controller state; initialize()
+    // leaves the display blank and column events disabled.
+    Hal::enableEvents();
+    while (true) Hal::idle();
 }
-
-int setup(){return 0;}
-int loop(){return 0;}

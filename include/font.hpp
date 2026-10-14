@@ -29,31 +29,66 @@ inline constexpr uint8_t bitmap[] = {
 inline constexpr uint16_t offsets[] = {0, 5, 11, 17, 23, 28, 33, 39, 45, 46, 51, 57, 62, 70, 76, 83, 89, 95, 101, 106, 112, 119, 129, 136, 143, 149, 154, 157, 163, 168, 174, 179, 184, 190, 195, 200};
 inline constexpr uint8_t widths[] = {5, 6, 6, 6, 5, 5, 6, 6, 1, 5, 6, 5, 8, 6, 7, 6, 6, 6, 5, 6, 7, 10, 7, 7, 6, 5, 3, 6, 5, 6, 5, 5, 6, 5, 5, 11};
 enum class RenderMode : uint8_t { Proportional, Fixed };
-inline int ordinaryIndex(char c) {
+inline constexpr int ordinaryIndex(char c) {
   for (uint16_t i=0;i<symbolCount;++i) if(availableSymbols[i]==c) return i;
   return -1;
 }
 struct Token { int glyph; size_t consumed; };
-inline Token decode(const char* p) {
-  if (!p || !*p) return {-1, 0};
-  if (p[0] != '\\') return {ordinaryIndex(p[0]), 1};
-  if (p[1] == '\\') return {backslashGlyph, 2};
-  if (p[1] == '{') {
-    size_t i=2; unsigned value=0; bool digit=false; bool good=true;
-    while (p[i]>='0' && p[i]<='9') {
-      digit=true; const unsigned d=unsigned(p[i]-'0');
-      if (value > 65535u/10u || value*10u+d > 65535u) good=false;
-      if (good) value=value*10u+d;
-      ++i;
+
+inline constexpr Token decode(const char* p) {
+    if (!p || !*p)
+        return {-1, 0};
+
+    if (p[0] != '\\')
+        return {ordinaryIndex(p[0]), 1};
+
+    // p[1] is safe here: p[0] is a non-null character.
+    if (p[1] == '\0')
+        return {-1, 1};
+
+    if (p[1] == '\\')
+        return {backslashGlyph, 2};
+
+    if (p[1] == '{') {
+        size_t i = 2;
+        unsigned value = 0;
+        bool digit = false;
+        bool good = true;
+
+        // Never advance past the null terminator.
+        while (p[i] != '\0' &&
+               p[i] >= '0' && p[i] <= '9') {
+            digit = true;
+            const unsigned d = unsigned(p[i] - '0');
+
+            if (value > 6553u || (value == 6553u && d > 5u))
+                good = false;
+
+            if (good)
+                value = value * 10u + d;
+
+            ++i;
+        }
+
+        // Only inspect the next character if it exists.
+        if (digit && p[i] == '}' &&
+            p[i + 1] != '\0' &&
+            p[i + 1] == '\\') {
+            return {
+                good && value < specialCount
+                    ? int(symbolCount + value)
+                    : -1,
+                i + 2
+            };
+        }
     }
-    if (digit && p[i]=='}' && p[i+1]=='\\')
-      return {good && value<specialCount ? int(symbolCount+value) : -1, i+2};
-  }
-  return {-1, 1};
+
+    return {-1, 1};
 }
+
 // Callback signature: setPixel(int x, int y, bool on). Calls only for ON pixels.
 template <class SetPixel>
-inline int drawText(const char* text, int x, int y, SetPixel setPixel,
+constexpr int drawText(const char* text, int x, int y, SetPixel setPixel,
                     RenderMode mode=RenderMode::Proportional) {
   if (!text) return 0;
   const int start=x;
