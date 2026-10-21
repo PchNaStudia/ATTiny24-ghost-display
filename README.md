@@ -87,3 +87,30 @@ cadence rather than introducing a new periodic timer.
 
 # avr-gcc-16.1
 Toolchain can be downloaded from https://github.com/ZakKemble/avr-gcc-build
+
+## Animation cost measurements
+
+Run `python tools/measure_animation_size.py` to build isolated copies of the
+firmware with individual and leave-one-out animation families. The actual
+configuration is not changed. Results are written under `.pio/effect-size`.
+Measurements include schedule metadata and compiler/LTO interactions; family
+costs are not additive.
+
+After rotation-state hoisting and the regular Blink implementation, the controlled
+all-family image is 1856 bytes. Removing each family saves: Wipe 10 bytes,
+Walk 36 bytes, Typewriter/ForwardDelete 50 bytes, Blink 28 bytes, OneByOne 132
+bytes. These figures describe the tool's synthetic schedule, not arbitrary user
+configurations. Unconfigured families are compile-time excluded.
+
+Blink now uses four equally spaced off intervals over its duration. Each off
+interval occupies 1/16 of the entry (75% visible overall), and both endpoints
+are visible. Duration is measured in rotations, not wall-clock time; very short
+entries can sample past intervals. Unlike the old pseudo-random dropout envelope,
+it never deliberately spends the middle of the effect almost entirely blank.
+
+OneByOne shares Typewriter's column-progress cursor and `roundToEmpty` boundary
+snapping. It displays only the last character revealed by that cursor, holding
+it across empty gaps. It starts blank and ends on the last character. Characters
+retain their original positions, and each half resolves its own boundaries.
+Timing is column-based rather than equal time per character; no character-count
+pass is needed.

@@ -41,15 +41,10 @@ inline uint8_t roundToEmpty(const Frame* frame, uint8_t cutoff, uint8_t width,
 inline bool maskedColumn(uint8_t column, uint8_t cutoff, bool reverse) {
     return reverse ? column >= cutoff : column < cutoff;
 }
-// A reproducible permutation of local rotation indices, compared to a triangular
-// drop-rate envelope. Every column in one rotation gets the same decision.
-inline bool blinkBlank(uint8_t stage, uint16_t step) {
-    const uint8_t intensity = stage < 128 ? stage * 2 : (255 - stage) * 2;
-    uint8_t sample = uint8_t(step) ^ uint8_t(step >> 8);
-    sample ^= uint8_t(sample << 3);
-    sample ^= sample >> 5;
-    sample ^= uint8_t(sample << 1);
-    return sample < intensity;
+// Four evenly spaced off intervals, each lasting 1/16 of the entry.
+// Progress 0 and 255 remain visible; all columns share the same decision.
+inline bool blinkBlank(uint8_t stage, uint16_t /*step*/) {
+    return (stage & 63) >= 32 && (stage & 63) < 48;
 }
 constexpr uint16_t mask(Animation effect) { return uint16_t(1) << animationFamily(effect); }
 constexpr uint16_t WALK_MASK = uint16_t(1) << animation_flags::WALK;
@@ -57,31 +52,15 @@ constexpr uint16_t SNAP_MASK = uint16_t(1) << animation_flags::SNAP;
 constexpr uint16_t BLINK_MASK = uint16_t(1) << animation_flags::BLINK;
 constexpr uint16_t ONE_BY_ONE_MASK = uint16_t(1) << animation_flags::ONE_BY_ONE;
 
-// Nonzero column runs are characters; repeated empty spacers are skipped.
+// Typewriter's snapped reveal boundary, with deletion one character behind.
+// Empty gaps hold the last revealed character; the initial boundary is blank.
 inline void characterWindow(const Frame* frame, uint8_t width, uint8_t stage,
                             uint8_t& begin, uint8_t& end, uint8_t offset = 0) {
-    uint8_t count = 0;
-    bool inside = false;
-    for (uint8_t col = 0; col < width; ++col) {
-        const bool on = Hal::readByte(&frame->columns[offset + col]) != 0;
-        if (on && !inside) ++count;
-        inside = on;
-    }
-    begin = end = 0;
-    if (!count) return;
-    const uint8_t selected = (uint16_t(stage) * count) >> 8;
-    uint8_t ordinal = 0, col = 0;
-    while (col < width) {
-        while (col < width && Hal::readByte(&frame->columns[offset + col]) == 0) ++col;
-        const uint8_t start = col;
-        while (col < width && Hal::readByte(&frame->columns[offset + col]) != 0) ++col;
-        if (start == col) break;
-        if (ordinal++ == selected) {
-            begin = start;
-            end = col;
-            return;
-        }
-    }
+    end = roundToEmpty(frame, width - distance(stage, width, false), width, offset);
+    begin = end;
+    while (begin && Hal::readByte(&frame->columns[offset + begin - 1]) == 0) --begin;
+    end = begin;
+    while (begin && Hal::readByte(&frame->columns[offset + begin - 1]) != 0) --begin;
 }
 }
 

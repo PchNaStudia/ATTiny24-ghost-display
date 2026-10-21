@@ -1,6 +1,6 @@
 #include "DisplayController.hpp"
 #include "Hal.hpp"
-#include "virtual_frames.hpp"
+#include "prepared_animation.hpp"
 
 namespace {
 constexpr uint16_t MIN_COLUMN_TICKS = 32;
@@ -10,6 +10,7 @@ uint16_t columnTicks = 0;
 uint16_t deadline = 0;
 uint8_t currentColumn = 0;
 VirtualFrameIndex activeVirtualFrame = VIRTUAL_FRAME_COUNT - 1;
+PreparedAnimation prepared{};
 bool synchronized = false;
 
 void stopDisplay() {
@@ -37,7 +38,7 @@ void onColumnDeadline() {
         stopDisplay();
         return;
     }
-    Hal::writeColumn(getColumn(activeVirtualFrame, currentColumn));
+    Hal::writeColumn(prepared.column(currentColumn));
     ++currentColumn;
     schedule(deadline + columnTicks);
 }
@@ -60,8 +61,8 @@ void onRotation() {
     columnTicks = elapsed / COLS;
     Hal::cancelColumn();
     activeVirtualFrame = nextVirtualFrame(activeVirtualFrame);
-    Hal::selectStrip(getStrip(activeVirtualFrame));
-    Hal::writeColumn(getColumn(activeVirtualFrame, 0));
+    Hal::selectStrip(prepared.prepare(activeVirtualFrame));
+    Hal::writeColumn(prepared.column(0));
     currentColumn = 1;
     schedule(uint16_t(now) + columnTicks);
 }

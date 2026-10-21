@@ -58,22 +58,27 @@ int main() {
         check(!animation_detail::blinkBlank(0, sample), "blink start full");
         check(!animation_detail::blinkBlank(255, sample), "blink end full");
     }
-    unsigned middle = 0, edge = 0;
-    for (uint16_t sample = 0; sample < 256; ++sample) {
-        middle += animation_detail::blinkBlank(128, sample);
-        edge += animation_detail::blinkBlank(32, sample);
+    unsigned blankStages = 0, transitions = 0;
+    bool previous = false;
+    for (uint16_t stage = 0; stage < 256; ++stage) {
+        const bool blank = animation_detail::blinkBlank(uint8_t(stage), 0);
+        blankStages += blank;
+        transitions += blank != previous;
+        previous = blank;
+        check(blank == animation_detail::blinkBlank(uint8_t(stage), 65535),
+              "blink is independent of pseudo-random step sampling");
     }
-    check(middle == 254 && edge == 64, "blink triangular drop density");
+    check(blankStages == 64 && transitions == 8, "four regular blinks with 75 percent visible duty");
     Frame spaced{};
     for (uint8_t col = 0; col < 5; ++col) spaced.columns[col] = 255;
     for (uint8_t col = 6; col < 10; ++col) spaced.columns[col] = 255;
     check(animation_detail::roundToEmpty(&spaced, 2, COLS) == 5, "snap to spacer");
     check(animation_detail::roundToEmpty(&spaced, 7, COLS) == 10, "snap next glyph");
     check(animation_detail::roundToEmpty(&pattern, 1, COLS) == COLS, "snap to end");
-    for (uint16_t step = 0; step < 8; ++step)
+    for (uint16_t step = 0; step < 256; ++step)
         for (uint8_t col = 0; col < COLS; ++col)
-            check(animatedColumn(&spaced, col, Animation::OneByOne, step, 8) ==
-                ((step < 4 ? col < 5 : col >= 6 && col < 10)
+            check(animatedColumn(&spaced, col, Animation::OneByOne, step, 256) ==
+                ((step == 0 ? false : step <= 10 ? col < 5 : col >= 6 && col < 10)
                     ? spaced.columns[col] : 0), "one character at original position");
     Frame empty{};
     // Different character counts and offsets must be processed independently.
