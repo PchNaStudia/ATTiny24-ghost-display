@@ -14,6 +14,26 @@ static_assert(!makeFrame("WWWWWWWWWWWWWW").fits, "full circle overflow");
 static_assert(ledfont::decode("\\{65536}\\").glyph == -1, "overflow rejected");
 static_assert(ledfont::decode("\\{655360}\\").glyph == -1, "overflow stays invalid");
 
+constexpr bool fullAlignmentValid() {
+    constexpr auto original = makeFrame("HELLO WORLD");
+    constexpr int used = ledfont::drawText("HELLO WORLD", 0, 0, [](int,int,bool) constexpr {}) - 1;
+    constexpr FrameAlignment alignments[] = {FrameAlignment::Top, FrameAlignment::Right,
+        FrameAlignment::Bottom, FrameAlignment::Left};
+    constexpr int anchors[] = {COLS / 4, COLS / 2, 3 * COLS / 4, 0};
+    for (int i = 0; i < 4; ++i) {
+        const auto aligned = makeFrame("HELLO WORLD", alignments[i]);
+        for (int col = 0; col < COLS; ++col)
+            if (aligned.columns[col] != original.columns[col])
+                return false;
+        if (aligned.origin != (anchors[i] - used / 2 + COLS) % COLS) return false;
+        if (!aligned.fits || aligned.displayMode != DisplayMode::FullCircle) return false;
+    }
+    return true;
+}
+static_assert(fullAlignmentValid(), "cardinal alignment preserves logical columns and records wraparound origin");
+static_assert(makeFrame("", FrameAlignment::Top).fits, "empty centered frame");
+static_assert(!makeFrame("WWWWWWWWWWWWWW", FrameAlignment::Top).fits, "alignment preserves overflow detection");
+
 int main() {
     constexpr auto left = makeHalfFrame("AI", TextAlignment::Left);
     constexpr auto centered = makeHalfFrame("AI");

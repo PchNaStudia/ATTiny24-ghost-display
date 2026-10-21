@@ -18,6 +18,7 @@ struct Frame {
     uint8_t columns[COLS];
     DisplayMode displayMode = DisplayMode::FullCircle;
     bool fits = true;
+    uint8_t origin = 0; // Physical column of logical text column zero.
 };
 
 template<uint8_t Width>
@@ -58,11 +59,29 @@ constexpr HalfFrame makeHalfFrame(const char* text, TextAlignment alignment = Te
     return frame;
 }
 
-constexpr Frame makeFrame(const char* text) {
+// Physical anchor for the text midpoint, measured from the sensor column.
+enum class FrameAlignment : uint8_t {
+    Start, Top, Right, Bottom, Left
+};
+
+constexpr Frame makeFrame(const char* text, FrameAlignment alignment = FrameAlignment::Start) {
     const auto content = makeTextFrame<COLS>(text);
     Frame frame{};
     frame.fits = content.fits;
-    for (uint8_t col = 0; col < COLS; ++col) frame.columns[col] = content.columns[col];
+    const int advance = ledfont::drawText(text, 0, 0, [](int, int, bool) constexpr {});
+    const int used = advance > 0 ? advance - 1 : 0;
+    const int targetDegrees = alignment == FrameAlignment::Top ? 270 :
+        alignment == FrameAlignment::Right ? 0 :
+        alignment == FrameAlignment::Bottom ? 90 : 180;
+    const int anchorDegrees = DisplayLayout::clockwise
+        ? (targetDegrees - DisplayLayout::sensorAngleDegrees + 360) % 360
+        : (DisplayLayout::sensorAngleDegrees - targetDegrees + 360) % 360;
+    const int anchor = anchorDegrees * COLS / 360;
+    const int shift = alignment == FrameAlignment::Start ? 0 :
+        (anchor - (used < COLS ? used : COLS) / 2 + COLS) % COLS;
+    frame.origin = shift;
+    for (uint8_t col = 0; col < COLS; ++col)
+        frame.columns[col] = content.columns[col];
     return frame;
 }
 
@@ -97,7 +116,7 @@ inline uint8_t renderColumnWith(const Frame* frame, uint8_t currentCol,
     const uint8_t phase = DisplayLayout::stripPhase(strip);
 
     const uint8_t pos =
-        (currentCol + phase) & (COLS - 1);
+        (currentCol + phase - Hal::readByte(&frame->origin)) & (COLS - 1);
 
     uint8_t index = pos;
     bool inverted = false;

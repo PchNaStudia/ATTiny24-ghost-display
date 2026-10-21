@@ -3,9 +3,9 @@
 
 // Edit the display content here. Frame indices follow the order in this array.
 constexpr Frame frames[] HAL_STORAGE = {
-    makeFrame("HELLO WORLD"),
+    makeFrame("HELLO WORLD", FrameAlignment::Top),
     makeTwoHalves(makeHalfFrame("HELLO"), makeHalfFrame("WORLDS")),
-    makeFrame("GOODBYE"),
+    makeFrame("GOODBYE", FrameAlignment::Right),
     makeTwoHalves(makeHalfFrame("GOOD"), makeHalfFrame("BYE")),
 };
 
@@ -17,7 +17,7 @@ constexpr AnimationEntry animation[] HAL_STORAGE = {
     virtualFrame<1>(32, Animation::Typewriter),
     virtualFrame<1>(64, Animation::Typewriter, Strip::Second),
     virtualFrame<1>(32, Animation::Typewriter),
-    virtualFrame<1>(255, Animation::None, Strip::Second),
+    virtualFrame<1>(255, Animation::OneByOne, Strip::Second),
     virtualFrame<1>(128, Animation::ForwardDelete),
 
     virtualFrame<2>(128, Animation::WalkInReverse),
@@ -26,6 +26,6 @@ constexpr AnimationEntry animation[] HAL_STORAGE = {
     virtualFrame<3>(32, Animation::Typewriter),
     virtualFrame<3>(64, Animation::Typewriter, Strip::Second),
     virtualFrame<3>(32, Animation::Typewriter),
-    virtualFrame<3>(255, Animation::None, Strip::Second),
+    virtualFrame<3>(255, Animation::OneByOne, Strip::Second),
     virtualFrame<3>(128, Animation::ForwardDelete),
 };

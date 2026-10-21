@@ -71,7 +71,7 @@ inline uint8_t getColumn(VirtualFrameIndex position, uint8_t column,
 }
 
 inline uint8_t getColumn(VirtualFrameIndex position, uint8_t column) {
-    if constexpr ((ANIMATION_EFFECT_MASK & ~uint16_t(1)) == 0)
+    if constexpr (ANIMATION_EFFECT_MASK == 0)
         return renderColumn(virtual_frames_detail::resolve(position), column, getStrip(position));
     else return getColumn<ANIMATION_EFFECT_MASK>(position, column, animation,
                      sizeof(animation) / sizeof(animation[0]));

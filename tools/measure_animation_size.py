@@ -33,7 +33,8 @@ def main():
         entries = []
         for bit, effects in enumerate(FAMILIES.values()):
             for effect in effects:
-                for frame in range(2):
+                for frame in range(1):
+                    frame = len(entries) % 2
                     strip = 'Second' if frame else 'First'
                     selected = effect if mask & (1 << bit) else 'None'
                     entries.append(f'    virtualFrame<{frame}>(255, Animation::{selected}, Strip::{strip}),')
@@ -53,7 +54,7 @@ def main():
         print(f'{mask:02d} {" + ".join(names) or "None"}: {record["flash"]} bytes ({record["delta"]:+d})', flush=True)
     columns = [('None', 0), ('Blink', 8), ('OneByOne', 16), ('Blink + OneByOne', 24)]
     lines = [f'No-animation baseline: {results[0]["flash"]} bytes flash; {results[0]["ram"]} bytes static RAM.',
-             'Fixed 26-entry schedule, same frames/durations/strips; every named variant included.',
+             'Fixed 13-entry schedule, same frames/durations/strips; every named variant included.',
              '', '| Wipe / Walk / Typewriter | ' + ' | '.join(name for name, _ in columns) + ' |',
              '|---|' + '---:|' * 4]
     for row in range(8):

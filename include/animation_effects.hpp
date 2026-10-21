@@ -46,88 +46,86 @@ inline bool maskedColumn(uint8_t column, uint8_t cutoff, bool reverse) {
 inline bool blinkBlank(uint8_t stage, uint16_t /*step*/) {
     return (stage & 63) >= 32 && (stage & 63) < 48;
 }
-constexpr uint16_t mask(Animation effect) { return uint16_t(1) << animationFamily(effect); }
-constexpr uint16_t WALK_MASK = uint16_t(1) << animation_flags::WALK;
-constexpr uint16_t SNAP_MASK = uint16_t(1) << animation_flags::SNAP;
-constexpr uint16_t BLINK_MASK = uint16_t(1) << animation_flags::BLINK;
-constexpr uint16_t ONE_BY_ONE_MASK = uint16_t(1) << animation_flags::ONE_BY_ONE;
-
-// Typewriter's snapped reveal boundary, with deletion one character behind.
-// Empty gaps hold the last revealed character; the initial boundary is blank.
-inline void characterWindow(const Frame* frame, uint8_t width, uint8_t stage,
-                            uint8_t& begin, uint8_t& end, uint8_t offset = 0) {
-    end = roundToEmpty(frame, width - distance(stage, width, false), width, offset);
-    begin = end;
-    while (begin && Hal::readByte(&frame->columns[offset + begin - 1]) == 0) --begin;
-    end = begin;
-    while (begin && Hal::readByte(&frame->columns[offset + begin - 1]) != 0) --begin;
-}
+constexpr uint16_t mask(Animation effect) { return uint8_t(effect); }
 }
 
-// Family filtering is compile-time; direction/progress remain runtime flags.
-template<uint16_t EnabledEffects = 0xFFFF>
+// Fixed order: reveal -> delete -> shift -> blink -> physical layout.
+struct AnimationState {
+    const Frame* frame;
+    uint8_t width, phase;
+    uint8_t begin[2], end[2];
+    uint8_t shift;
+
+    template<uint16_t EnabledEffects = 0x7F>
+    void prepare(const Frame* source, Animation effect, uint16_t step,
+                 uint16_t duration, Strip strip) {
+        frame = source;
+        phase = DisplayLayout::stripPhase(strip) - Hal::readByte(&frame->origin);
+        width = Hal::readByte(&frame->displayMode) == uint8_t(DisplayMode::TwoHalves) ? HALF : COLS;
+        const uint8_t flags = uint8_t(effect) & EnabledEffects;
+        // Exact progress with column-quantized boundaries.
+        const uint8_t progress = animation_detail::stage(step, duration);
+        const uint8_t cursor = progress == 0 ? 0 : uint16_t(progress + 1) >> (width == HALF ? 2 : 1);
+        shift = 0;
+        if constexpr (EnabledEffects & animation_flags::SHIFT) {
+            if (flags & animation_flags::SHIFT) {
+                const uint8_t amount = flags & animation_flags::OUT ? cursor : width - cursor;
+                shift = flags & animation_flags::REVERSE ? uint8_t(-amount) : amount;
+            }
+        }
+        for (uint8_t half = 0; half < 2; ++half) {
+            const uint8_t offset = half * (width & HALF);
+            uint8_t first = 0, last = width;
+            if constexpr (EnabledEffects & (animation_flags::REVEAL | animation_flags::DELETE)) {
+                uint8_t boundary = cursor;
+                if constexpr (EnabledEffects & animation_flags::SNAP)
+                    if (flags & animation_flags::SNAP)
+                        boundary = animation_detail::roundToEmpty(frame, boundary, width, offset);
+                if (flags & animation_flags::REVEAL) last = boundary;
+                if (flags & animation_flags::DELETE) {
+                    first = boundary;
+                    if (flags & animation_flags::REVEAL) {
+                        // Reuse the snapped reveal breakpoint; keep exactly its
+                        // preceding nonempty run, holding it across spacer gaps.
+                        while (first && Hal::readByte(&frame->columns[offset + first - 1]) == 0) --first;
+                        last = first;
+                        while (first && Hal::readByte(&frame->columns[offset + first - 1]) != 0) --first;
+                    }
+
+                }
+                if (flags & animation_flags::REVERSE) {
+                    const uint8_t oldFirst = first;
+                    first = width - last;
+                    last = width - oldFirst;
+                }
+            }
+            if constexpr (EnabledEffects & animation_flags::BLINK)
+                if ((flags & animation_flags::BLINK) && animation_detail::blinkBlank(progress, step)) last = 0;
+            begin[half] = first;
+            end[half] = last;
+        }
+    }
+    uint8_t column(uint8_t col) const {
+        const uint8_t position = (col + phase) & (COLS - 1);
+        // position < 128: bit 6 selects a half only when width == 64.
+        const uint8_t half = (position & width) >> 6;
+        const bool inverted = half;
+        const uint8_t logical = inverted ? COLS - 1 - position : position;
+        const uint8_t source = logical - shift;
+        // end never exceeds width, so this also rejects shifted out-of-range columns.
+        if (source < begin[half] || source >= end[half]) return 0;
+        const uint8_t value = Hal::readByte(&frame->columns[(inverted ? HALF : 0) + source]);
+        return inverted ? reverseBits(value) : value;
+    }
+};
+
+template<uint16_t EnabledEffects = 0x7F>
 inline uint8_t animatedColumn(const Frame* frame, uint8_t column,
                              Animation effect, uint16_t step, uint16_t duration,
                              Strip strip = Strip::First) {
-    if (!frame || duration == 0 || step >= duration) return 0;
-    const uint8_t flags = uint8_t(effect);
-    const uint8_t family = animationFamily(effect);
-    if (flags > 31 || family > animation_flags::ONE_BY_ONE ||
-        (family == 0 && flags != 0) ||
-        (family >= animation_flags::BLINK && flags != family)) return 0;
-    if constexpr (!(EnabledEffects & (uint16_t(1) << animation_flags::WIPE)))
-        if (family == animation_flags::WIPE) return 0;
-    if constexpr (!(EnabledEffects & animation_detail::WALK_MASK))
-        if (family == animation_flags::WALK) return 0;
-    if constexpr (!(EnabledEffects & animation_detail::SNAP_MASK))
-        if (family == animation_flags::SNAP) return 0;
-    if constexpr (!(EnabledEffects & animation_detail::BLINK_MASK))
-        if (family == animation_flags::BLINK) return 0;
-    if constexpr (!(EnabledEffects & animation_detail::ONE_BY_ONE_MASK))
-        if (family == animation_flags::ONE_BY_ONE) return 0;
-    const uint8_t width = Hal::readByte(&frame->displayMode) == uint8_t(DisplayMode::TwoHalves)
-        ? HALF : COLS;
-    const uint8_t position = (column + DisplayLayout::stripPhase(strip)) & (COLS - 1);
-    const uint8_t offset = width == HALF && position >= HALF ? HALF : 0;
-    uint8_t begin = 0, end = width;
-    int16_t shift = 0;
-    if (family != 0) {
-        const uint8_t stage = animation_detail::stage(step, duration);
-        if constexpr (EnabledEffects & animation_detail::ONE_BY_ONE_MASK) {
-            if (family == animation_flags::ONE_BY_ONE)
-                animation_detail::characterWindow(frame, width, stage, begin, end, offset);
-        }
-        if constexpr (EnabledEffects & animation_detail::BLINK_MASK) {
-            if (family == animation_flags::BLINK) {
-                if (animation_detail::blinkBlank(stage, step)) end = 0;
-            }
-        }
-        if (family < animation_flags::BLINK) {
-            const bool reverse = flags & animation_flags::REVERSE;
-            const uint8_t distance = animation_detail::distance(stage, width,
-                                                               flags & animation_flags::OUT);
-            bool walking = false;
-            if constexpr (EnabledEffects & animation_detail::WALK_MASK) {
-                walking = family == animation_flags::WALK;
-                if (walking) shift = reverse ? -int16_t(distance) : int16_t(distance);
-            }
-            if (!walking) {
-                uint8_t cutoff = reverse ? width - distance : distance;
-                if constexpr (EnabledEffects & animation_detail::SNAP_MASK) {
-                    if (family == animation_flags::SNAP)
-                        cutoff = animation_detail::roundToEmpty(frame, cutoff, width, offset);
-                }
-                if (reverse) end = cutoff;
-                else begin = cutoff;
-            }
-        }
-    }
-    const bool inverted = offset != 0;
-    const uint8_t logical = inverted ? COLS - 1 - position : position;
-    if (logical < begin || logical >= end) return 0;
-    const int source = int(logical) - shift;
-    if (source < 0 || source >= width) return 0;
-    const uint8_t value = Hal::readByte(&frame->columns[offset + source]);
-    return inverted ? reverseBits(value) : value;
+    if (!frame || !duration || step >= duration || !validAnimation(effect) ||
+        (uint8_t(effect) & ~EnabledEffects)) return 0;
+    AnimationState state{};
+    state.prepare<EnabledEffects>(frame, effect, step, duration, strip);
+    return state.column(column);
 }
-

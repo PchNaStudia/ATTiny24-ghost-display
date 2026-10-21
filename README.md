@@ -27,6 +27,7 @@ column order and radial bits on the lower half to keep its content upright.
 
 ```cpp
 makeFrame("CONTINUOUS CIRCLE") // One 128-column circular frame.
+makeFrame("HELLO WORLD", FrameAlignment::Top) // Center around the top; wraps.
 makeTwoHalves(makeHalfFrame("TOP"), makeHalfFrame("BOTTOM"))
 virtualFrame<0>(255, Animation::None, Strip::Second)
 ```
@@ -88,29 +89,56 @@ cadence rather than introducing a new periodic timer.
 # avr-gcc-16.1
 Toolchain can be downloaded from https://github.com/ZakKemble/avr-gcc-build
 
-## Animation cost measurements
+## Composable POV animations
 
-Run `python tools/measure_animation_size.py` to build isolated copies of the
-firmware with individual and leave-one-out animation families. The actual
-configuration is not changed. Results are written under `.pio/effect-size`.
-Measurements include schedule metadata and compiler/LTO interactions; family
-costs are not additive.
+Effects combine with `|`, for example:
 
-After rotation-state hoisting and the regular Blink implementation, the controlled
-all-family image is 1856 bytes. Removing each family saves: Wipe 10 bytes,
-Walk 36 bytes, Typewriter/ForwardDelete 50 bytes, Blink 28 bytes, OneByOne 132
-bytes. These figures describe the tool's synthetic schedule, not arbitrary user
-configurations. Unconfigured families are compile-time excluded.
+```cpp
+virtualFrame<1>(128, Animation::Typewriter | Animation::ForwardDelete)
+virtualFrame<1>(128, Animation::Typewriter | Animation::Blink)
+```
 
-Blink now uses four equally spaced off intervals over its duration. Each off
-interval occupies 1/16 of the entry (75% visible overall), and both endpoints
-are visible. Duration is measured in rotations, not wall-clock time; very short
-entries can sample past intervals. Unlike the old pseudo-random dropout envelope,
-it never deliberately spends the middle of the effect almost entirely blank.
+The fixed pipeline is reveal, delete, shift, blink, then strip/half mapping.
+Masks are evaluated in source coordinates before shifting. Each entry stores
+one effect byte regardless of how many operations it enables. `OneByOne` is an
+alias for `Typewriter | ForwardDelete`, with no independent engine. Its erase
+cursor uses the preceding character breakpoint of the snapped reveal boundary.
+It displays one complete nonempty column run at its original position and holds
+that run across spacer gaps. Glyphs containing internal empty columns may still
+be treated as multiple runs.
+Both halves maintain independent reveal boundaries. Progress remains exact.
 
-OneByOne shares Typewriter's column-progress cursor and `roundToEmpty` boundary
-snapping. It displays only the last character revealed by that cursor, holding
-it across empty gaps. It starts blank and ends on the last character. Characters
-retain their original positions, and each half resolves its own boundaries.
-Timing is column-based rather than equal time per character; no character-count
-pass is needed.
+For readable POV content, prefer static holds and reveal/delete transitions.
+Walk moves/clips the text, making it less suitable during reading; it remains
+optional for entry/exit transitions. Reverse wipes and Backspace share the same
+boundary operators, not separate engines. Blink gates whole rotations and should
+be used sparingly; its frequency varies with RPM. It has four regular off
+intervals, 75% visible duty overall, and visible endpoints. Short durations may
+skip blink intervals.
+
+Run `python tools/measure_animation_size.py` for 32 isolated support-combination
+builds with a fixed 13-entry schedule. The report covers which operations are
+linked, not every possible simultaneous visual composition. Source configuration
+is never changed; results and logs are under `.pio/effect-size`. Results include
+compiler/LTO effects and are not additive or comparable to earlier 26-entry
+reports. With the current four source frames: no-animation baseline 1720 bytes,
+all operations 2014 bytes. OneByOne adds no bytes when Typewriter/ForwardDelete
+support is already linked. The actual 16-entry user configuration builds at
+2048 bytes flash and 23 bytes static RAM with OneByOne enabled.
+
+This improves the actual configured build but is not a universal flash reduction:
+the composable engine has overhead for small operation subsets. The current build has no flash headroom; no additional source frame fits.
+
+### Full-circle alignment
+
+`makeFrame(text, FrameAlignment::Top)` centers text around the physical top;
+`Right`, `Bottom`, and `Left` select other cardinal anchors. `Start` preserves
+sensor-zero placement. Frames store columns in logical text order and a one-byte
+origin computed by constexpr generation. Rotation preparation folds that origin
+into the strip phase, so static output and all animation operations wrap together.
+Walk, reveal, delete and character-breakpoint lookup no longer split a glyph at
+sensor column zero. Half-frame alignment and mapping remain unchanged.
+
+The current four-frame configuration builds at 2044/2048 bytes flash and 23 bytes
+static RAM. Only four flash bytes remain. The extra origin byte per frame is
+part of that measured size. Earlier size reports above predate this correction.

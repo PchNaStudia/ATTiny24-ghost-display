@@ -24,7 +24,7 @@ static_assert(animationEntriesValid(),
 constexpr uint16_t configuredAnimationEffects() {
     uint16_t mask = 0;
     for (const auto& entry : animation)
-        mask |= uint16_t(1) << animationFamily(entry.effect);
+        mask |= uint8_t(entry.effect);
     return mask;
 }
 constexpr uint16_t ANIMATION_EFFECT_MASK = configuredAnimationEffects();
